@@ -28,30 +28,25 @@ __device__ void swap(int* a, int* b) {
     *b = temp;
 }
 
-__device__ void sort_desc(int* arr,int n) {
-    for (int k = 2; k <= n; k <<= 1) 
-        for (int j = (k >> 1); j > 0; j >>= 1) 
-            for (int i = 0; i < n; i++)
-            {
-                int l = i ^ j;
-                if(l > i)
-                    if ((((i & k) == 0) && (arr[i] < arr[l])) || (((i & k) != 0) && (arr[i] > arr[l]))) {
-                        swap(&arr[i], &arr[l]);
-                    }
-            }
-}
+__device__ void iterative_bitonic_sort(int* arr, int n,int dir) {
+    for (int k = 2; k <= n; k <<= 1) {
+        for (int j = k; j > 1; j >>= 1) {
+            int z = 0;
+            for (int i = 0; i < n/j; i ++) {
+                if (z >= k) {
+                    z = 0;
+                    dir ^= 1;
+                }
 
-__device__ void sort_asc(int* arr, int n) {
-    for (int k = 2; k <= n; k <<= 1)
-        for (int j = (k >> 1); j > 0; j >>= 1)
-            for (int i = 0; i < n; i++)
-            {
-                int l = i ^ j;
-                if (l > i)
-                    if ((((i & k) == 0) && (arr[i] > arr[l])) || (((i & k) != 0) && (arr[i] < arr[l]))) {
-                        swap(&arr[i], &arr[l]);
+                for (int x = i * j; x < i * j + (j / 2); x++) {
+                    z += 2;
+                    if (dir == (arr[x] > arr[x + (j / 2)])) {
+                        swap(&arr[x], &arr[x + j / 2]);
                     }
+                }
             }
+        }
+    }
 }
 
 __global__ void bitonicSort(int *seq, int N, int K, int iters,int dir) {
@@ -72,12 +67,7 @@ __global__ void bitonicSort(int *seq, int N, int K, int iters,int dir) {
         int* subseq = seq + size * idx;
 
         _dir = (idx % 2 == 0) ? dir : (dir ^ 1);
-        if(_dir == 0) {
-            sort_asc(subseq,size);
-        }
-        else {
-            sort_desc(subseq,size);
-        }
+        iterative_bitonic_sort(subseq,size,_dir);
 
         __syncthreads();
     }
@@ -116,12 +106,8 @@ int main(int argc,char* argv[]) {
     CHECK(cudaMalloc((void **)&d_c, nBytes));
     CHECK(cudaMemcpy(d_c, h_c,nBytes, cudaMemcpyHostToDevice));
 
-    int threadsPerBlock = 32; // Number of threads per block
-    int numBlocks = (K + threadsPerBlock) / threadsPerBlock;
-    // int numBlocks = (N + K - 1) / K; // Calculate number of blocks needed
-
     (void)get_delta_time();
-    bitonicSort<<<numBlocks,threadsPerBlock>>>(d_c, N, K, numIters, 1);
+    bitonicSort<<<1,K>>>(d_c, N, K, numIters, 0);
     CHECK(cudaDeviceSynchronize()); // wait for kernel to finish - aguarda que o gpu acabe de executar
     CHECK(cudaGetLastError());      // check for kernel errors // por sempre
     printf("time elapsed %.5f\n",get_delta_time());
