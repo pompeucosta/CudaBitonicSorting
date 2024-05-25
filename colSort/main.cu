@@ -28,8 +28,8 @@ __device__ void swap(int* a, int* b) {
     *b = temp;
 }
 
-__device__ void iterative_bitonic_sort_column(int* arr, int n, int ns, int dir,int idx) {
-    for (int k = 2; k <= n; k <<= 1) {
+__device__ void iterative_bitonic_sort_column(int* arr, int n, int ns, int dir,int initialK) {
+    for (int k = initialK; k <= n; k <<= 1) {
         for (int j = k; j > 1; j >>= 1) {
             int z = 0;
             for (int i = 0; i < n / j; i++) {
@@ -59,6 +59,7 @@ __global__ void bitonicSort(int *seq, int N, int Ns, int K, int iters,int dir) {
     int _dir = dir;
     int iter = 0;
     int size = (N / K) * (1 << iter);
+    int initialK = 2;
 
     for(int iter = 0; size <= N; iter++) {
         int limit = (K >> iter);
@@ -68,8 +69,8 @@ __global__ void bitonicSort(int *seq, int N, int Ns, int K, int iters,int dir) {
         size = (N / K) * (1 << iter);
         int* subseq = seq + (Ns / K) * (1 << iter) * idx;
         _dir = (idx % 2 == 0) ? dir : (dir ^ 1);
-        iterative_bitonic_sort_column(subseq,size,Ns,_dir ^ 1,idx);
-
+        iterative_bitonic_sort_column(subseq,size,Ns,_dir ^ 1,initialK);
+        initialK = size << 1;
         __syncthreads();
     }
 
@@ -109,11 +110,8 @@ int main(int argc,char* argv[]) {
     CHECK(cudaMalloc((void **)&d_c, nBytes));
     CHECK(cudaMemcpy(d_c, h_c,nBytes, cudaMemcpyHostToDevice));
 
-    int threadsPerBlock = 32;
-    int numBlocks = (K + threadsPerBlock - 1) / threadsPerBlock;
-
     (void)get_delta_time();
-    bitonicSort<<<numBlocks,threadsPerBlock>>>(d_c, N,Ns,K,numIters,1);
+    bitonicSort<<<1,K>>>(d_c, N,Ns,K,numIters,1);
     CHECK(cudaDeviceSynchronize());
     CHECK(cudaGetLastError());  
     printf("time elapsed %.5f\n",get_delta_time());

@@ -28,8 +28,8 @@ __device__ void swap(int* a, int* b) {
     *b = temp;
 }
 
-__device__ void iterative_bitonic_sort(int* arr, int n,int dir) {
-    for (int k = 2; k <= n; k <<= 1) {
+__device__ void iterative_bitonic_sort(int* arr, int n,int dir,int initialK) {
+    for (int k = initialK; k <= n; k <<= 1) {
         for (int j = k; j > 1; j >>= 1) {
             int z = 0;
             for (int i = 0; i < n/j; i ++) {
@@ -57,6 +57,7 @@ __global__ void bitonicSort(int *seq, int N, int K, int iters,int dir) {
     int _dir = dir;
     int iter = 0;
     int size = (N / K) * (1 << iter);
+    int initialK = 2;
 
     for(int iter = 0; size <= N; iter++) {
         int limit = (K >> iter);
@@ -67,8 +68,8 @@ __global__ void bitonicSort(int *seq, int N, int K, int iters,int dir) {
         int* subseq = seq + size * idx;
 
         _dir = (idx % 2 == 0) ? dir : (dir ^ 1);
-        iterative_bitonic_sort(subseq,size,_dir);
-
+        iterative_bitonic_sort(subseq,size,_dir,initialK);
+        initialK = size << 1;
         __syncthreads();
     }
 
