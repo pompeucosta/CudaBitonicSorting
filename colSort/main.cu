@@ -1,3 +1,7 @@
+/**
+ * Pompeu Costa and Guilherme Craveiro,May 2024
+*/
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,11 +12,9 @@
 
 static double get_delta_time(void);
 
-__device__ void swap(int* a, int* b);
+static __device__ void iterative_bitonic_sort_column(int* arr, int n, int ns,int logNs, int dir,int initialK);
 
-__device__ void iterative_bitonic_sort_column(int* arr, int n, int ns, int dir,int initialK);
-
-__global__ void bitonicSort(int *seq, int N, int Ns, int K, int iters,int dir);
+static __global__ void bitonicSort(int *seq, int N, int Ns,int logNs, int K,int dir);
 
 /**
  *   main program
@@ -47,15 +49,14 @@ int main(int argc,char* argv[]) {
     fread(h_c,sizeof(int),N,file);
     fclose(file);
 
-    int numIters = log2(N);
-    printf("numIters: %d\n",numIters);
-
     int* d_c;
     CHECK(cudaMalloc((void **)&d_c, nBytes));
     CHECK(cudaMemcpy(d_c, h_c,nBytes, cudaMemcpyHostToDevice));
 
+    int logNs = log2(Ns);
+
     (void)get_delta_time();
-    bitonicSort<<<1,K>>>(d_c, N,Ns,K,numIters,1);
+    bitonicSort<<<1,K>>>(d_c, N,Ns,logNs,K,1);
     CHECK(cudaDeviceSynchronize());
     CHECK(cudaGetLastError());  
     printf("time elapsed %.5f\n",get_delta_time());
@@ -102,47 +103,37 @@ static double get_delta_time(void)
 }
 
 /**
- * \brief Swap the values of two integers.
- *
- * \param a Pointer to the first integer
- * \param b Pointer to the second integer
- */
-__device__ void swap(int* a, int* b) {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-/**
  * \brief Perform an iterative bitonic sort on a column.
  *
  * \param arr The array to be sorted
  * \param n The total number of elements in the array
  * \param ns The size of a column
+ * \param logNs The log2 value of ns
  * \param dir The sorting direction (1 for ascending, 0 for descending)
  * \param initialK The initial value of k
  */
-__device__ void iterative_bitonic_sort_column(int* arr, int n, int ns, int dir,int initialK) {
+static __device__ void iterative_bitonic_sort_column(int* arr, int n, int ns,int logNs, int dir,int initialK) {
     for (int k = initialK; k <= n; k <<= 1) {
-        for (int j = k; j > 1; j >>= 1) {
-            int z = 0;
-            for (int i = 0; i < n / j; i++) {
-                if (z >= k) {
-                    z = 0;
-                    dir ^= 1;
-                }
+    for (int j = k; j > 1; j >>= 1) {
+        int jDiv2 = j >> 1;
+        for (int i = 0, z = 0; i < n; i += j) {
+            if (z >= k) {
+                z = 0;
+                dir ^= 1;
+            }
 
-                for (int x = i * j; x < i * j + (j / 2); x++) {
-                    z += 2;
-                    int x1 = ns * (x % ns) + (x / ns);
-                    int x2 = ns * ((x + j / 2) % ns) + ((x + j / 2) / ns);
-                    if (dir == (arr[x1] > arr[x2])) {
-                        swap(&arr[x1], &arr[x2]);
-                    }
+            for (int x = i; x < i + jDiv2; x++, z += 2) {
+                int x1 = ns * (x & (ns - 1)) + (x >> logNs);
+                int x2 = ns * ((x + jDiv2) & (ns - 1)) + ((x + jDiv2) >> logNs);
+                if (dir == (arr[x1] > arr[x2])) {
+                    int temp = arr[x1];
+                    arr[x1] = arr[x2];
+                    arr[x2] = temp;
                 }
             }
         }
     }
+}
 }
 
 /**
@@ -151,29 +142,29 @@ __device__ void iterative_bitonic_sort_column(int* arr, int n, int ns, int dir,i
  * \param seq The array to be sorted
  * \param N The total number of elements in the array
  * \param Ns The size of a column
+ * \param logNs The log2 value of ns
  * \param K The number of columns
  * \param iters The number of iterations for the bitonic sort
  * \param dir The sorting direction (1 for ascending, 0 for descending)
  */
-__global__ void bitonicSort(int *seq, int N, int Ns, int K, int iters,int dir) {
+static __global__ void bitonicSort(int *seq, int N, int Ns,int logNs, int K,int dir) {
     int x = threadIdx.x + blockDim.x * blockIdx.x;
     int y = threadIdx.y + blockDim.y * blockIdx.y;
     int idx = gridDim.x * blockDim.x * y + x;
 
-    int _dir = dir;
-    int iter = 0;
-    int size = (N / K) * (1 << iter);
-    int initialK = 2;
+    const int _dir = ((idx & 1) == 0) ? dir : (dir ^ 1);
+    const int nDivK = N/K;
+    const int nsDivK = Ns/K;
+    int* subseq;
 
-    for(int iter = 0; size <= N; iter++) {
+    for(int iter = 0,size = nDivK,initialK = 2; size <= N; iter++) {
         int limit = (K >> iter);
         if (idx >= limit)
             return;
 
-        size = (N / K) * (1 << iter);
-        int* subseq = seq + (Ns / K) * (1 << iter) * idx;
-        _dir = (idx % 2 == 0) ? dir : (dir ^ 1);
-        iterative_bitonic_sort_column(subseq,size,Ns,_dir ^ 1,initialK);
+        size = nDivK * (1 << iter);
+        subseq = seq + nsDivK * (1 << iter) * idx;
+        iterative_bitonic_sort_column(subseq,size,Ns,logNs,_dir ^ 1,initialK);
         initialK = size << 1;
         __syncthreads();
     }
