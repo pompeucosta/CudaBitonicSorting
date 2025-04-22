@@ -7,4 +7,4 @@ There are two "programs":
 - prog2: sorts in a column manner, meaning it jumps from element to element skiping the an entire line to go to the next column. For instance, if the data is seen as a 10x10 matrix, then the algorithm compares the element 0 with the element 9, then the element 1 with the element 11, and so on...
 
 The point is to confirm the performance between both and how the cache affects it.
-For more information, read [the presentation](https://github.com/pompeucosta/CLE-Assignment3/blob/main/present.pdf).
+For more information, read [the presentation](https://github.com/pompeucosta/CudaBitonicSorting/blob/main/present.pdf).
